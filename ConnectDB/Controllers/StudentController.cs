@@ -4,10 +4,11 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using System.ComponentModel.DataAnnotations;
 
 namespace ConnectDB.Controllers
 {
-    [Authorize(Roles = "Student")] // Chỉ cho phép Sinh viên truy cập Controller này
+    [Authorize(Roles = "Student")]
     [ApiController]
     [Route("api/[controller]")]
     public class StudentController : ControllerBase
@@ -21,14 +22,26 @@ namespace ConnectDB.Controllers
             return claim != null ? int.Parse(claim.Value) : 0;
         }
 
-        // 1. Lấy hồ sơ cá nhân
+        // 1. Lấy hồ sơ cá nhân (Đã dọn rác bằng Select)
         [HttpGet("profile")]
         public async Task<IActionResult> GetProfile()
         {
             var userId = GetCurrentUserId();
             var student = await _context.Students
                 .Include(s => s.Class)
-                .FirstOrDefaultAsync(s => s.UserId == userId);
+                .Where(s => s.UserId == userId)
+                .Select(s => new {
+                    s.StudentCode,
+                    s.FullName,
+                    s.Birthday,
+                    s.Gender,
+                    s.Phone,
+                    s.Email,
+                    s.Address,
+                    s.Status,
+                    ClassName = s.Class != null ? s.Class.ClassName : "N/A"
+                })
+                .FirstOrDefaultAsync();
 
             if (student == null) return NotFound(new { message = "Không tìm thấy hồ sơ sinh viên" });
 
@@ -40,12 +53,9 @@ namespace ConnectDB.Controllers
         public async Task<IActionResult> GetMySchedules()
         {
             var userId = GetCurrentUserId();
-
-            // Tìm thông tin sinh viên để lấy ClassId
             var student = await _context.Students.FirstOrDefaultAsync(s => s.UserId == userId);
-            if (student == null) return NotFound("Không tìm thấy thông tin sinh viên.");
+            if (student == null) return NotFound(new { message = "Không tìm thấy thông tin sinh viên." });
 
-            // Lấy lịch học dựa trên ClassId
             var schedules = await _context.Schedules
                 .Where(s => s.ClassId == student.ClassId)
                 .Include(s => s.Subject)
@@ -66,41 +76,42 @@ namespace ConnectDB.Controllers
             return Ok(schedules);
         }
 
-        // 3. Đổi mật khẩu
+        // 3. Đổi mật khẩu (Đã thêm Validation & Trim)
         [HttpPut("change-password")]
         public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto dto)
         {
             var userId = GetCurrentUserId();
             var user = await _context.Users.FindAsync(userId);
-            if (user == null) return NotFound();
+            if (user == null) return NotFound(new { message = "Người dùng không tồn tại" });
 
+            // Lưu ý: Nếu DB lưu pass đã hash, chỗ này phải dùng hàm Verify của thư viện Hash
             if (user.Password?.Trim() != dto.OldPassword.Trim())
-                return BadRequest(new { message = "Mật khẩu cũ không đúng" });
+                return BadRequest(new { message = "Mật khẩu cũ không chính xác" });
 
             user.Password = dto.NewPassword.Trim();
             await _context.SaveChangesAsync();
             return Ok(new { message = "Đổi mật khẩu thành công" });
         }
 
-        // 4. Cập nhật hồ sơ
+        // 4. Cập nhật hồ sơ (Đã thêm Validation)
         [HttpPut("update-profile")]
         public async Task<IActionResult> UpdateProfile([FromBody] StudentUpdateDto dto)
         {
             var userId = GetCurrentUserId();
             var student = await _context.Students.FirstOrDefaultAsync(s => s.UserId == userId);
-            if (student == null) return NotFound();
+            if (student == null) return NotFound(new { message = "Không tìm thấy sinh viên" });
 
-            student.FullName = dto.FullName;
-            student.Phone = dto.Phone;
-            student.Address = dto.Address;
-            student.Email = dto.Email;
+            student.FullName = dto.FullName.Trim();
+            student.Phone = dto.Phone?.Trim();
+            student.Address = dto.Address?.Trim();
+            student.Email = dto.Email?.Trim();
             student.Birthday = dto.Birthday;
 
             await _context.SaveChangesAsync();
-            return Ok(new { message = "Cập nhật thành công" });
+            return Ok(new { message = "Cập nhật hồ sơ thành công" });
         }
 
-        // 5. Bảng điểm và Xếp loại
+        // 5. Bảng điểm và Xếp loại (Đã fix lỗi Logic Average)
         [HttpGet("academic-summary")]
         public async Task<IActionResult> GetSummary()
         {
@@ -111,9 +122,10 @@ namespace ConnectDB.Controllers
                 .ThenInclude(sc => sc.Subject)
                 .FirstOrDefaultAsync(s => s.UserId == userId);
 
-            if (student == null) return NotFound();
+            if (student == null) return NotFound(new { message = "Không tìm thấy hồ sơ" });
+
             if (student.Scores == null || !student.Scores.Any())
-                return Ok(new { message = "Chưa có điểm học tập" });
+                return Ok(new { message = "Chưa có dữ liệu điểm học tập" });
 
             var subjectDetails = student.Scores.Select(s => new SubjectGradeDto
             {
@@ -123,7 +135,8 @@ namespace ConnectDB.Controllers
                 Status = s.Value >= 4.0 ? "Đạt" : "Học lại"
             }).ToList();
 
-            double avg = student.Scores.Average(x => x.Value);
+            // Fix lỗi Average khi danh sách rỗng (dù đã check Any ở trên nhưng viết vầy cho chắc)
+            double avg = student.Scores.Any() ? student.Scores.Average(x => x.Value) : 0;
             string ranking = avg >= 8.0 ? "Giỏi" : avg >= 6.5 ? "Khá" : avg >= 5.0 ? "Trung bình" : "Yếu";
 
             return Ok(new AcademicSummaryDto
@@ -137,9 +150,35 @@ namespace ConnectDB.Controllers
         }
     }
 
-    // --- DTOs (Data Transfer Objects) ---
-    public class ChangePasswordDto { public string OldPassword { get; set; } = ""; public string NewPassword { get; set; } = ""; }
-    public class StudentUpdateDto { public string FullName { get; set; } = ""; public string? Phone { get; set; } public string? Address { get; set; } public string? Email { get; set; } public DateTime Birthday { get; set; } }
+    // --- DTOs (Data Transfer Objects) với Validation ---
+
+    public class ChangePasswordDto
+    {
+        [Required(ErrorMessage = "Vui lòng nhập mật khẩu cũ")]
+        public string OldPassword { get; set; } = "";
+
+        [Required(ErrorMessage = "Vui lòng nhập mật khẩu mới")]
+        [MinLength(6, ErrorMessage = "Mật khẩu mới phải từ 6 ký tự trở lên")]
+        public string NewPassword { get; set; } = "";
+    }
+
+    public class StudentUpdateDto
+    {
+        [Required(ErrorMessage = "Họ tên không được để trống")]
+        [StringLength(100, ErrorMessage = "Tên quá dài")]
+        public string FullName { get; set; } = "";
+
+        [Phone(ErrorMessage = "Số điện thoại không đúng định dạng")]
+        public string? Phone { get; set; }
+
+        public string? Address { get; set; }
+
+        [EmailAddress(ErrorMessage = "Email không hợp lệ")]
+        public string? Email { get; set; }
+
+        public DateTime Birthday { get; set; }
+    }
+
     public class AcademicSummaryDto
     {
         public string StudentName { get; set; } = "";
@@ -148,5 +187,12 @@ namespace ConnectDB.Controllers
         public string Ranking { get; set; } = "";
         public List<SubjectGradeDto> SubjectDetails { get; set; } = new();
     }
-    public class SubjectGradeDto { public string SubjectName { get; set; } = ""; public double Score { get; set; } public string Grade { get; set; } = ""; public string Status { get; set; } = ""; }
+
+    public class SubjectGradeDto
+    {
+        public string SubjectName { get; set; } = "";
+        public double Score { get; set; }
+        public string Grade { get; set; } = "";
+        public string Status { get; set; } = "";
+    }
 }
