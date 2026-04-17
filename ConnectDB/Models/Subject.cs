@@ -10,7 +10,7 @@ namespace ConnectDB.Models
         [Required]
         [StringLength(50)]
         public string SubjectName { get; set; } = string.Empty;
-
+        public int Credits { get; set; } // <--- THÊM DÒNG NÀY VÀO
         public ICollection<Score>? Scores { get; set; }
     }
 }
