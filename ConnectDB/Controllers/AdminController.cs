@@ -206,27 +206,26 @@ namespace ConnectDB.Controllers
 
         // ================= 5. LỊCH HỌC (SCHEDULE) =================
         [HttpGet("schedules")]
-        public async Task<IActionResult> GetSchedules() => Ok(await _context.Schedules.Include(s => s.Subject).Include(s => s.Teacher).Include(s => s.Class).ToListAsync());
-
-        [HttpPost("schedules")]
-        public async Task<IActionResult> AddSchedule([FromBody] ScheduleCreateDto dto)
+        public async Task<IActionResult> GetSchedules()
         {
-            var sc = new Schedule
-            {
-                Date = dto.LearnDate,
-                LearnDate = dto.LearnDate,
-                Slot = dto.Slot,
-                Room = dto.Room,
-                SubjectId = dto.SubjectId,
-                TeacherId = dto.TeacherId,
-                ClassId = dto.ClassId,
-                Note = dto.Note
-            };
-            _context.Schedules.Add(sc);
-            await _context.SaveChangesAsync();
-            return Ok(new { message = "Đã thêm lịch học" });
-        }
+            var result = await _context.Schedules
+                .Include(s => s.Subject)
+                .Include(s => s.Teacher)
+                .Include(s => s.Class)
+                .Select(s => new {
+                    s.Id,
+                    Học_Ngày = s.LearnDate,
+                    Ca_Học = s.Slot,
+                    Phòng = s.Room,
+                    Môn_Học = s.Subject.SubjectName,
+                    Giảng_Viên = s.Teacher.FullName,
+                    Lớp = s.Class.ClassName,
+                    Ghi_Chú = s.Note
+                })
+                .ToListAsync();
 
+            return Ok(result);
+        }
         // ================= 6. LỚP HỌC (CLASS) =================
         [HttpGet("classes")]
         public async Task<IActionResult> GetClasses() => Ok(await _context.Classes.Include(c => c.Faculty).ToListAsync());
