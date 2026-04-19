@@ -73,16 +73,17 @@ namespace ConnectDB.Controllers
         }
 
         // ================= 3. SINH VIÊN (STUDENT) =================
-        [HttpPost("students")]
-        // Thêm hàm này vào AdminController.cs
+        // ================= 3. SINH VIÊN (STUDENT) =================
+
+        // 1. Hàm lấy danh sách (GET)
         [HttpGet("students")]
         public async Task<IActionResult> GetStudents()
         {
             var students = await _context.Students
-                .Include(s => s.Class) // Để lấy được tên lớp
+                .Include(s => s.Class)
                 .Select(s => new {
                     Id = s.Id,
-                    StudentId = s.StudentCode, // M lưu ý trường này nhé
+                    StudentId = s.StudentCode,
                     FullName = s.FullName,
                     Email = s.Email,
                     ClassName = s.Class != null ? s.Class.ClassName : "Chưa xếp lớp"
@@ -91,6 +92,9 @@ namespace ConnectDB.Controllers
 
             return Ok(students);
         }
+
+        // 2. Hàm thêm mới (POST) - M tách cái nhãn này xuống đây
+        [HttpPost("students")]
         public async Task<IActionResult> AddStudent([FromBody] StudentCreateDto dto)
         {
             if (await _context.Users.AnyAsync(u => u.Username == dto.StudentCode))
@@ -131,23 +135,6 @@ namespace ConnectDB.Controllers
                 return StatusCode(500, ex.Message);
             }
         }
-
-        [HttpPut("students/{id}")]
-        public async Task<IActionResult> UpdateStudent(int id, [FromBody] StudentCreateDto dto)
-        {
-            var st = await _context.Students.Include(x => x.User).FirstOrDefaultAsync(x => x.Id == id);
-            if (st == null) return NotFound();
-            st.FullName = dto.FullName;
-            st.ClassId = dto.ClassId;
-            st.Birthday = dto.Birthday;
-            st.Gender = dto.Gender;
-            st.Phone = dto.Phone;
-            st.Email = dto.Email;
-            st.Address = dto.Address;
-            await _context.SaveChangesAsync();
-            return Ok(new { message = "Cập nhật thành công!" });
-        }
-
         [HttpDelete("students/{id}")]
         public async Task<IActionResult> DeleteStudent(int id)
         {
