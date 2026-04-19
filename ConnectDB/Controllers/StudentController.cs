@@ -1,6 +1,6 @@
 ﻿using ConnectDB.Data;
 using ConnectDB.Models;
-using ConnectDB.DTO; // 👈 Thêm dòng này để dùng chung DTO
+using ConnectDB.DTO;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -17,6 +17,7 @@ namespace ConnectDB.Controllers
         private readonly AppDbContext _context;
         public StudentController(AppDbContext context) { _context = context; }
 
+        // Hàm lấy UserId từ Token JWT
         private int GetCurrentUserId()
         {
             var claim = User.FindFirst(ClaimTypes.NameIdentifier);
@@ -45,7 +46,6 @@ namespace ConnectDB.Controllers
                 .FirstOrDefaultAsync();
 
             if (student == null) return NotFound(new { message = "Không tìm thấy hồ sơ sinh viên" });
-
             return Ok(student);
         }
 
@@ -72,12 +72,10 @@ namespace ConnectDB.Controllers
                 })
                 .ToListAsync();
 
-            if (!schedules.Any()) return Ok(new { message = "Bạn chưa có lịch học nào." });
-
             return Ok(schedules);
         }
 
-        // 3. Đổi mật khẩu
+        // 3. Đổi mật khẩu (So sánh chuỗi trực tiếp - Không mã hóa)
         [HttpPut("change-password")]
         public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto dto)
         {
@@ -85,9 +83,7 @@ namespace ConnectDB.Controllers
             var user = await _context.Users.FindAsync(userId);
             if (user == null) return NotFound(new { message = "Người dùng không tồn tại" });
 
-            // Lưu ý: Password trong DB của m đang được Hash bằng BCrypt ở AdminController, 
-            // nên chỗ này nếu so sánh trực tiếp "==" sẽ bị sai nếu m dùng pass đã hash.
-            // Nếu dùng BCrypt, m phải dùng: BCrypt.Net.BCrypt.Verify(dto.OldPassword, user.Password)
+            // So sánh trực tiếp
             if (user.Password != null && user.Password.Trim() != dto.OldPassword.Trim())
                 return BadRequest(new { message = "Mật khẩu cũ không chính xác" });
 
@@ -96,7 +92,7 @@ namespace ConnectDB.Controllers
             return Ok(new { message = "Đổi mật khẩu thành công" });
         }
 
-        // 4. Cập nhật hồ sơ (Dùng StudentUpdateDto từ Namespace ConnectDB.DTO)
+        // 4. Cập nhật hồ sơ
         [HttpPut("update-profile")]
         public async Task<IActionResult> UpdateProfile([FromBody] ConnectDB.DTO.StudentUpdateDto dto)
         {
@@ -114,7 +110,7 @@ namespace ConnectDB.Controllers
             return Ok(new { message = "Cập nhật hồ sơ thành công" });
         }
 
-        // 5. Bảng điểm và Xếp loại
+        // 5. Bảng điểm và Xếp loại (Đã fix lỗi s.Value -> s.DiemTrungBinh)
         [HttpGet("academic-summary")]
         public async Task<IActionResult> GetSummary()
         {
@@ -122,7 +118,7 @@ namespace ConnectDB.Controllers
             var student = await _context.Students
                 .Include(s => s.Class)
                 .Include(s => s.Scores!)
-                .ThenInclude(sc => sc.Subject)
+                    .ThenInclude(sc => sc.Subject)
                 .FirstOrDefaultAsync(s => s.UserId == userId);
 
             if (student == null) return NotFound(new { message = "Không tìm thấy hồ sơ" });
@@ -133,12 +129,12 @@ namespace ConnectDB.Controllers
             var subjectDetails = student.Scores.Select(s => new SubjectGradeDto
             {
                 SubjectName = s.Subject?.SubjectName ?? "N/A",
-                Score = s.Value,
-                Grade = s.Value >= 8.5 ? "A" : s.Value >= 7.0 ? "B" : s.Value >= 5.5 ? "C" : s.Value >= 4.0 ? "D" : "F",
-                Status = s.Value >= 4.0 ? "Đạt" : "Học lại"
+                Score = s.DiemTrungBinh,
+                Grade = s.DiemTrungBinh >= 8.5 ? "A" : s.DiemTrungBinh >= 7.0 ? "B" : s.DiemTrungBinh >= 5.5 ? "C" : s.DiemTrungBinh >= 4.0 ? "D" : "F",
+                Status = s.KetQua ?? "Chưa có kết quả"
             }).ToList();
 
-            double avg = student.Scores.Any() ? student.Scores.Average(x => x.Value) : 0;
+            double avg = student.Scores.Average(x => x.DiemTrungBinh);
             string ranking = avg >= 8.0 ? "Giỏi" : avg >= 6.5 ? "Khá" : avg >= 5.0 ? "Trung bình" : "Yếu";
 
             return Ok(new AcademicSummaryDto
@@ -152,15 +148,12 @@ namespace ConnectDB.Controllers
         }
     }
 
-    // --- Giữ lại các DTO riêng biệt của StudentController, nhưng XÓA StudentUpdateDto trùng lặp ---
-
+    // --- DTOs ---
     public class ChangePasswordDto
     {
-        [Required(ErrorMessage = "Vui lòng nhập mật khẩu cũ")]
+        [Required]
         public string OldPassword { get; set; } = "";
-
-        [Required(ErrorMessage = "Vui lòng nhập mật khẩu mới")]
-        [MinLength(6, ErrorMessage = "Mật khẩu mới phải từ 6 ký tự trở lên")]
+        [Required, MinLength(6)]
         public string NewPassword { get; set; } = "";
     }
 

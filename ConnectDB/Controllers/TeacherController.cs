@@ -1,26 +1,28 @@
 ﻿using ConnectDB.Data;
 using ConnectDB.Models;
+using ConnectDB.DTO; // Thêm cái này để nhận ScoreDto m đã tạo
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
-using Microsoft.AspNetCore.Authorization;
 
 namespace ConnectDB.Controllers
 {
-    [Authorize(Roles = "Admin,Teacher")] // <-- Admin và Teacher đều được vào
+    [Authorize(Roles = "Admin,Teacher")]
     [ApiController]
-    [Authorize]
     [Route("api/[controller]")]
-
     public class TeacherController : ControllerBase
     {
         private readonly AppDbContext _context;
         public TeacherController(AppDbContext context) { _context = context; }
 
+        // Hàm hỗ trợ lấy TeacherId từ Token
         private int GetCurrentTeacherId()
         {
-            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            if (userIdClaim == null) return 0;
+
+            var userId = int.Parse(userIdClaim.Value);
             return _context.Teachers.FirstOrDefault(t => t.UserId == userId)?.Id ?? 0;
         }
 
@@ -30,8 +32,10 @@ namespace ConnectDB.Controllers
         {
             var teacherId = GetCurrentTeacherId();
             var data = await _context.Schedules
-                .Include(s => s.Subject).Include(s => s.Class)
-                .Where(s => s.TeacherId == teacherId).ToListAsync();
+                .Include(s => s.Subject)
+                .Include(s => s.Class)
+                .Where(s => s.TeacherId == teacherId)
+                .ToListAsync();
             return Ok(data);
         }
 
@@ -49,7 +53,6 @@ namespace ConnectDB.Controllers
         [HttpGet("class-students/{classId}")]
         public async Task<IActionResult> GetStudentsByClass(int classId)
         {
-            // Lấy danh sách sinh viên trong lớp mà mình dạy
             var students = await _context.Students
                 .Where(s => s.ClassId == classId)
                 .Select(s => new { s.Id, s.StudentCode, s.FullName })
@@ -75,38 +78,50 @@ namespace ConnectDB.Controllers
             return Ok(new { message = "Điểm danh thành công!" });
         }
 
-        // ================= 3. NHẬP & SỬA ĐIỂM =================
+        // ================= 3. NHẬP & SỬA ĐIỂM (Đã fix lỗi Value) =================
         [HttpPost("submit-scores")]
-        public async Task<IActionResult> SubmitScore([FromBody] Score score)
+        public async Task<IActionResult> SubmitScore([FromBody] ScoreDto dto)
         {
             var teacherId = GetCurrentTeacherId();
-            // Kiểm tra xem giảng viên có dạy môn này cho lớp này không (Bảo mật)
-            var canGrade = await _context.Schedules.AnyAsync(s => s.TeacherId == teacherId && s.SubjectId == score.SubjectId);
-            if (!canGrade) return Forbid("Bạn không có quyền nhập điểm cho môn này");
 
+            // 1. Kiểm tra quyền giảng dạy
+            var canGrade = await _context.Schedules.AnyAsync(s => s.TeacherId == teacherId && s.SubjectId == dto.SubjectId);
+            if (!canGrade) return Forbid();
+
+            // 2. Tìm hoặc tạo mới bản ghi điểm
             var exist = await _context.Scores
-                .FirstOrDefaultAsync(s => s.StudentId == score.StudentId && s.SubjectId == score.SubjectId);
+                .FirstOrDefaultAsync(s => s.StudentId == dto.StudentId && s.SubjectId == dto.SubjectId);
 
             if (exist != null)
             {
-                exist.Value = score.Value; // Cập nhật nếu đã có
+                exist.KT1 = dto.KT1;
+                exist.KT2 = dto.KT2;
+                exist.DiemThi = dto.DiemThi;
+
+                exist.DiemTrungBinh = (float)Math.Round((exist.KT1 + exist.KT2 + exist.DiemThi * 2) / 4, 1);
+                exist.KetQua = exist.DiemTrungBinh >= 5 ? "Qua môn" : "Học lại";
             }
             else
             {
-                _context.Scores.Add(score); // Thêm mới nếu chưa có
+                var newScore = new Score
+                {
+                    StudentId = dto.StudentId,
+                    SubjectId = dto.SubjectId,
+                    KT1 = dto.KT1,
+                    KT2 = dto.KT2,
+                    DiemThi = dto.DiemThi,
+                    DiemTrungBinh = (float)Math.Round((dto.KT1 + dto.KT2 + dto.DiemThi * 2) / 4, 1),
+                    KetQua = ((dto.KT1 + dto.KT2 + dto.DiemThi * 2) / 4) >= 5 ? "Qua môn" : "Học lại"
+                };
+                _context.Scores.Add(newScore);
             }
 
             await _context.SaveChangesAsync();
-            return Ok(new { message = "Lưu điểm thành công" });
+            return Ok(new { message = "Lưu điểm thành công!" });
         }
     }
-    public class SubmitScoreDto
-    {
-        public int StudentId { get; set; }
-        public int SubjectId { get; set; }
-        public double Value { get; set; }
-    }
-    // DTO cho điểm danh
+
+    // --- DTOs ĐƯỢC ĐƯA RA NGOÀI CLASS CONTROLLER ĐỂ TRÁNH LỖI ---
     public class AttendanceDto
     {
         public int ScheduleId { get; set; }
