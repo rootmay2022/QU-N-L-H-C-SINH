@@ -74,6 +74,23 @@ namespace ConnectDB.Controllers
 
         // ================= 3. SINH VIÊN (STUDENT) =================
         [HttpPost("students")]
+        // Thêm hàm này vào AdminController.cs
+        [HttpGet("students")]
+        public async Task<IActionResult> GetStudents()
+        {
+            var students = await _context.Students
+                .Include(s => s.Class) // Để lấy được tên lớp
+                .Select(s => new {
+                    Id = s.Id,
+                    StudentId = s.StudentCode, // M lưu ý trường này nhé
+                    FullName = s.FullName,
+                    Email = s.Email,
+                    ClassName = s.Class != null ? s.Class.ClassName : "Chưa xếp lớp"
+                })
+                .ToListAsync();
+
+            return Ok(students);
+        }
         public async Task<IActionResult> AddStudent([FromBody] StudentCreateDto dto)
         {
             if (await _context.Users.AnyAsync(u => u.Username == dto.StudentCode))
