@@ -274,15 +274,19 @@ namespace ConnectDB.Controllers
         public async Task<IActionResult> GetScoreByStudent(int studentId)
         {
             var scores = await _context.Scores
-                .Where(s => s.StudentId == studentId) // Lọc đúng ID m cần
+                .Where(s => s.StudentId == studentId)
                 .Include(s => s.Subject)
+                .Include(s => s.Student) // Thêm cái này để lấy tên SV
                 .Select(s => new {
                     s.Id,
-                    s.Value,
+                    Value = s.Value,
+                    StudentName = s.Student.FullName,
                     SubjectName = s.Subject.SubjectName,
-                    s.Subject.Credits
+                    Credits = s.Subject.Credits
                 })
                 .ToListAsync();
+
+            if (!scores.Any()) return NotFound(new { message = "Sinh viên này chưa có điểm môn nào!" });
 
             return Ok(scores);
         }
