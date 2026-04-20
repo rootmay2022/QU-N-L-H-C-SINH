@@ -71,8 +71,6 @@ namespace ConnectDB.Controllers
             await _context.SaveChangesAsync();
             return Ok(new { message = "Xóa môn thành công" });
         }
-
-        // ================= 3. SINH VIÊN (STUDENT) =================
         // ================= 3. SINH VIÊN (STUDENT) =================
 
         // 1. Hàm lấy danh sách (GET)
@@ -154,6 +152,54 @@ namespace ConnectDB.Controllers
             {
                 await transaction.RollbackAsync();
                 return BadRequest("Lỗi khi xóa!");
+            }
+        }
+        // 3. Hàm sửa thông tin (PUT)
+        [HttpPut("students/{id}")]
+        public async Task<IActionResult> UpdateStudent(int id, [FromBody] StudentCreateDto dto)
+        {
+            var st = await _context.Students.FindAsync(id);
+            if (st == null) return NotFound(new { message = "Không tìm thấy sinh viên!" });
+
+            // Kiểm tra nếu đổi StudentCode thì cái mã mới có bị trùng với ai khác không
+            if (st.StudentCode != dto.StudentCode)
+            {
+                bool exists = await _context.Users.AnyAsync(u => u.Username == dto.StudentCode);
+                if (exists) return BadRequest(new { message = "Mã sinh viên mới này đã tồn tại trong hệ thống!" });
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                // 1. Cập nhật bảng User (vì Username đi theo StudentCode)
+                var user = await _context.Users.FindAsync(st.UserId);
+                if (user != null)
+                {
+                    user.Username = dto.StudentCode;
+                    _context.Users.Update(user);
+                }
+
+                // 2. Cập nhật bảng Student
+                st.StudentCode = dto.StudentCode;
+                st.FullName = dto.FullName;
+                st.Birthday = dto.Birthday;
+                st.Gender = dto.Gender;
+                st.Phone = dto.Phone;
+                st.Email = dto.Email;
+                st.Address = dto.Address;
+                st.ClassId = dto.ClassId;
+
+                _context.Students.Update(st);
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return Ok(new { message = "Cập nhật thông tin thành công!" });
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                return StatusCode(500, "Lỗi server: " + ex.Message);
             }
         }
 
