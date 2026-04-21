@@ -110,6 +110,7 @@ namespace ConnectDB.Controllers
                     StudentId = s.StudentCode,
                     FullName = s.FullName,
                     Email = s.Email,
+                    ClassId = s.ClassId,
                     ClassName = s.Class != null ? s.Class.ClassName : "Chưa xếp lớp"
                 })
                 .ToListAsync();
