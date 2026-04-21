@@ -4,6 +4,9 @@ using ConnectDB.DTO;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System;
+using System.Linq;
+using System.Threading.Tasks;
 using BCrypt.Net;
 
 namespace ConnectDB.Controllers
@@ -53,14 +56,12 @@ namespace ConnectDB.Controllers
         [HttpGet("subjects")]
         public async Task<IActionResult> GetSubjects()
         {
-            // Dùng Select để "nhặt" từng môn học và đính kèm thêm tên Khoa
             var subjects = await _context.Subjects
                 .Select(s => new {
                     s.Id,
                     s.SubjectName,
                     s.Credits,
                     s.FacultyId,
-                    // Truy vấn lấy tên khoa dựa trên FacultyId của môn học đó
                     FacultyName = _context.Faculties
                                     .Where(f => f.Id == s.FacultyId)
                                     .Select(f => f.FacultyName)
@@ -80,9 +81,8 @@ namespace ConnectDB.Controllers
             await _context.SaveChangesAsync();
             return Ok(new { message = "Xóa môn thành công" });
         }
-        // ================= 3. SINH VIÊN (STUDENT) =================
 
-        // 1. Hàm lấy danh sách (GET)
+        // ================= 3. SINH VIÊN (STUDENT) =================
         [HttpGet("students")]
         public async Task<IActionResult> GetStudents()
         {
@@ -93,6 +93,7 @@ namespace ConnectDB.Controllers
                     StudentId = s.StudentCode,
                     FullName = s.FullName,
                     Email = s.Email,
+                    // Dùng check null truyền thống thay vì dấu ?.
                     ClassName = s.Class != null ? s.Class.ClassName : "Chưa xếp lớp"
                 })
                 .ToListAsync();
@@ -100,7 +101,6 @@ namespace ConnectDB.Controllers
             return Ok(students);
         }
 
-        // 2. Hàm thêm mới (POST) - M tách cái nhãn này xuống đây
         [HttpPost("students")]
         public async Task<IActionResult> AddStudent([FromBody] StudentCreateDto dto)
         {
@@ -142,6 +142,7 @@ namespace ConnectDB.Controllers
                 return StatusCode(500, ex.Message);
             }
         }
+
         [HttpDelete("students/{id}")]
         public async Task<IActionResult> DeleteStudent(int id)
         {
@@ -163,14 +164,13 @@ namespace ConnectDB.Controllers
                 return BadRequest("Lỗi khi xóa!");
             }
         }
-        // 3. Hàm sửa thông tin (PUT)
+
         [HttpPut("students/{id}")]
         public async Task<IActionResult> UpdateStudent(int id, [FromBody] StudentCreateDto dto)
         {
             var st = await _context.Students.FindAsync(id);
             if (st == null) return NotFound(new { message = "Không tìm thấy sinh viên!" });
 
-            // Kiểm tra nếu đổi StudentCode thì cái mã mới có bị trùng với ai khác không
             if (st.StudentCode != dto.StudentCode)
             {
                 bool exists = await _context.Users.AnyAsync(u => u.Username == dto.StudentCode);
@@ -180,7 +180,6 @@ namespace ConnectDB.Controllers
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                // 1. Cập nhật bảng User (vì Username đi theo StudentCode)
                 var user = await _context.Users.FindAsync(st.UserId);
                 if (user != null)
                 {
@@ -188,7 +187,6 @@ namespace ConnectDB.Controllers
                     _context.Users.Update(user);
                 }
 
-                // 2. Cập nhật bảng Student
                 st.StudentCode = dto.StudentCode;
                 st.FullName = dto.FullName;
                 st.Birthday = dto.Birthday;
@@ -219,6 +217,9 @@ namespace ConnectDB.Controllers
         [HttpPost("teachers")]
         public async Task<IActionResult> AddTeacher([FromBody] CreateTeacherDto dto)
         {
+            if (await _context.Users.AnyAsync(u => u.Username == dto.Username))
+                return BadRequest(new { message = "Tài khoản giảng viên đã tồn tại!" });
+
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
@@ -263,40 +264,39 @@ namespace ConnectDB.Controllers
             return Ok(new { message = "Xóa thành công" });
         }
 
+
         // ================= 5. LỊCH HỌC (SCHEDULE) =================
         [HttpGet("schedules")]
         public async Task<IActionResult> GetSchedules([FromQuery] int? classId = null)
         {
-            // 1. Tạo query cơ bản
             var query = _context.Schedules
                 .Include(s => s.Subject)
                 .Include(s => s.Teacher)
                 .Include(s => s.Class)
                 .AsQueryable();
 
-            // 2. Nếu người dùng có truyền classId lên thì lọc theo lớp đó
             if (classId.HasValue)
             {
                 query = query.Where(s => s.ClassId == classId.Value);
             }
 
-            // 3. Select ra dữ liệu sạch và trả về
             var result = await query
                 .Select(s => new {
                     s.Id,
                     Học_Ngày = s.LearnDate,
                     Ca_Học = s.Slot,
                     Phòng = s.Room,
-                    Môn_Học = s.Subject.SubjectName,
-                    Giảng_Viên = s.Teacher.FullName,
-                    Lớp = s.Class.ClassName,
+                    Môn_Học = s.Subject != null ? s.Subject.SubjectName : "---",
+                    Giảng_Viên = s.Teacher != null ? s.Teacher.FullName : "---",
+                    Lớp = s.Class != null ? s.Class.ClassName : "---",
                     Ghi_Chú = s.Note
                 })
-                .OrderBy(s => s.Học_Ngày) // Sắp xếp theo ngày cho dễ nhìn
+                .OrderBy(s => s.Học_Ngày)
                 .ToListAsync();
 
             return Ok(result);
         }
+
         // ================= 6. LỚP HỌC (CLASS) =================
         [HttpGet("classes")]
         public async Task<IActionResult> GetClasses() => Ok(await _context.Classes.Include(c => c.Faculty).ToListAsync());
@@ -311,9 +311,6 @@ namespace ConnectDB.Controllers
         }
 
         // ================= 7. ĐIỂM SỐ (SCORE) =================
-        // ================= 7. ĐIỂM SỐ (SCORE) =================
-
-        // Hàm lấy tất cả điểm (cho Admin xem)
         [HttpGet("scores")]
         public async Task<IActionResult> GetAllScores()
         {
@@ -323,21 +320,20 @@ namespace ConnectDB.Controllers
                 .Select(s => new
                 {
                     s.Id,
-                    StudentName = s.Student.FullName,
-                    SubjectName = s.Subject.SubjectName,
+                    StudentName = s.Student != null ? s.Student.FullName : "---",
+                    SubjectName = s.Subject != null ? s.Subject.SubjectName : "---",
                     s.KT1,
                     s.KT2,
                     s.DiemThi,
                     s.DiemTrungBinh,
                     s.KetQua,
-                    Credits = s.Subject.Credits
+                    Credits = s.Subject != null ? s.Subject.Credits : 0
                 })
                 .ToListAsync();
 
             return Ok(result);
         }
 
-        // Hàm lấy điểm riêng cho từng sinh viên (Dùng cho Frontend Sinh viên)
         [HttpGet("scores/student/{studentId}")]
         public async Task<IActionResult> GetScoreByStudent(int studentId)
         {
@@ -346,26 +342,24 @@ namespace ConnectDB.Controllers
                 .Include(s => s.Subject)
                 .Select(s => new {
                     s.Id,
-                    SubjectName = s.Subject.SubjectName,
+                    SubjectName = s.Subject != null ? s.Subject.SubjectName : "---",
                     s.KT1,
                     s.KT2,
                     s.DiemThi,
                     s.DiemTrungBinh,
                     s.KetQua,
-                    Credits = s.Subject.Credits
+                    Credits = s.Subject != null ? s.Subject.Credits : 0
                 })
                 .ToListAsync();
 
-            if (!scores.Any()) return NotFound(new { message = "Mưa chưa có điểm môn nào đâu m ơi!" });
+            if (!scores.Any()) return NotFound(new { message = "Sinh viên chưa có điểm môn nào!" });
 
             return Ok(scores);
         }
 
-        // Hàm Thêm/Cập nhật điểm mới (Có logic tính toán tự động)
         [HttpPost("scores")]
         public async Task<IActionResult> UpdateScore([FromBody] ScoreDto dto)
         {
-            // Kiểm tra xem đã có bản ghi điểm này chưa (1 SV - 1 Môn chỉ 1 dòng điểm)
             var score = await _context.Scores
                 .FirstOrDefaultAsync(s => s.StudentId == dto.StudentId && s.SubjectId == dto.SubjectId);
 
@@ -375,33 +369,92 @@ namespace ConnectDB.Controllers
                 _context.Scores.Add(score);
             }
 
-            // Gán điểm thành phần
             score.KT1 = dto.KT1;
             score.KT2 = dto.KT2;
             score.DiemThi = dto.DiemThi;
 
-            // --- LOGIC TÍNH TOÁN ---
-            // Công thức: (KT1 + KT2 + Thi*2) / 4. M có thể đổi tùy ý.
             score.DiemTrungBinh = (float)Math.Round((score.KT1 + score.KT2 + score.DiemThi * 2) / 4, 1);
             score.KetQua = score.DiemTrungBinh >= 5 ? "Qua môn" : "Học lại";
 
             await _context.SaveChangesAsync();
             return Ok(new { message = "Đã cập nhật điểm và tính toán xong!", dtb = score.DiemTrungBinh, ketQua = score.KetQua });
         }
-        // ================= 8. HỆ THỐNG TÀI KHOẢN =================
-        [HttpGet("users")]
-        public async Task<IActionResult> GetUsers() => Ok(await _context.Users.ToListAsync());
 
+        // ================= 8. HỆ THỐNG TÀI KHOẢN (USERS) =================
+        [HttpGet("users")]
+        public async Task<IActionResult> GetUsers()
+        {
+            var users = await _context.Users
+                .Select(u => new {
+                    Id = u.Id,
+                    Username = u.Username,
+                    Role = u.Role,
+                    FacultyId = u.Role == "Student"
+                        ? _context.Students.Where(s => s.UserId == u.Id).Select(s => s.Class != null ? (int?)s.Class.FacultyId : null).FirstOrDefault()
+                        : null,
+                    FacultyName = u.Role == "Student"
+                        ? _context.Students.Where(s => s.UserId == u.Id).Select(s => (s.Class != null && s.Class.Faculty != null) ? s.Class.Faculty.FacultyName : "---").FirstOrDefault()
+                        : "---"
+                })
+                .ToListAsync();
+
+            return Ok(users);
+        }
+
+        // CỦA M: Cập nhật User kèm đổi Role 
+        [HttpPut("users/{id}")]
+        public async Task<IActionResult> UpdateUser(int id, [FromBody] User u)
+        {
+            var userDb = await _context.Users.FindAsync(id);
+            if (userDb == null) return NotFound();
+
+            userDb.Username = u.Username;
+            userDb.Role = u.Role;
+
+            if (!string.IsNullOrEmpty(u.Password))
+                userDb.Password = BCrypt.Net.BCrypt.HashPassword(u.Password);
+
+            await _context.SaveChangesAsync();
+            return Ok(new { message = "Cập nhật thành công" });
+        }
+
+        // THÊM: Đổi Pass dành riêng cho nút React (Có băm BCrypt)
+        [HttpPut("users/{id}/password")]
+        public async Task<IActionResult> ChangePassword(int id, [FromBody] UIChangePasswordReq dto)
+        {
+            var user = await _context.Users.FindAsync(id);
+            if (user == null) return NotFound(new { message = "Không tìm thấy tài khoản!" });
+
+            user.Password = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+            await _context.SaveChangesAsync();
+            return Ok(new { message = "Đổi mật khẩu thành công!" });
+        }
+
+        // THÊM: Chức năng Xóa cho nút React
+        [HttpDelete("users/{id}")]
+        public async Task<IActionResult> DeleteUser(int id)
+        {
+            var user = await _context.Users.FindAsync(id);
+            if (user == null) return NotFound();
+
+            _context.Users.Remove(user);
+            await _context.SaveChangesAsync();
+            return Ok(new { message = "Đã xóa tài khoản!" });
+        }
+
+        // CỦA M: Reset Pass
         [HttpPut("users/reset-password/{id}")]
         public async Task<IActionResult> ResetPassword(int id)
         {
             var user = await _context.Users.FindAsync(id);
             if (user == null) return NotFound();
+
             user.Password = BCrypt.Net.BCrypt.HashPassword("123");
             await _context.SaveChangesAsync();
             return Ok(new { message = "Mật khẩu đã reset về 123" });
         }
 
+        // CỦA M: Create User Manual
         [HttpPost("create-user-manual")]
         public async Task<IActionResult> CreateUserManual([FromBody] User u)
         {
@@ -414,30 +467,27 @@ namespace ConnectDB.Controllers
             return Ok(new { message = "Tạo tài khoản thành công!" });
         }
 
-        [HttpPut("users/{id}")]
-        public async Task<IActionResult> UpdateUser(int id, [FromBody] User u)
-        {
-            var userDb = await _context.Users.FindAsync(id);
-            if (userDb == null) return NotFound();
-            userDb.Username = u.Username;
-            userDb.Role = u.Role;
-            if (!string.IsNullOrEmpty(u.Password))
-                userDb.Password = BCrypt.Net.BCrypt.HashPassword(u.Password);
-            await _context.SaveChangesAsync();
-            return Ok(new { message = "Cập nhật thành công" });
-        }
-
         // ================= 9. NGHIỆP VỤ ĐẶC BIỆT =================
+        // CỦA M
         [HttpPut("leave-requests/approve/{id}")]
         public async Task<IActionResult> ApproveLeave(int id)
         {
             var request = await _context.LeaveRequests.FindAsync(id);
             if (request == null) return NotFound();
+
             request.Status = "Approved";
             var busySchedules = await _context.Schedules.Where(s => s.TeacherId == request.TeacherId && s.Date.Date == request.OffDate.Date).ToListAsync();
+
             foreach (var item in busySchedules) item.Note = "GIẢNG VIÊN NGHỈ - LỚP TỰ HỌC";
+
             await _context.SaveChangesAsync();
             return Ok(new { message = "Duyệt nghỉ thành công!" });
         }
+    }
+
+    // --- CÁI DTO NÀY ĐỂ HỨNG PASS TỪ REACT TRUYỀN LÊN ---
+    public class UIChangePasswordReq
+    {
+        public string NewPassword { get; set; } = string.Empty;
     }
 }
