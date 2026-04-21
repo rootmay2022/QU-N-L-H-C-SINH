@@ -74,7 +74,6 @@ namespace ConnectDB.Controllers
             return Ok(subjects);
         }
 
-        // FIX LỖI THIẾU HÀM CHO REACT (Lỗi ở tấm ảnh m gửi)
         [HttpPost("subjects")]
         public async Task<IActionResult> AddSubject([FromBody] SubjectCreateDto dto)
         {
@@ -99,7 +98,6 @@ namespace ConnectDB.Controllers
             return Ok(new { message = "Xóa môn thành công" });
         }
 
-      
         // ================= 3. SINH VIÊN (STUDENT) =================
         [HttpGet("students")]
         public async Task<IActionResult> GetStudents()
@@ -108,8 +106,8 @@ namespace ConnectDB.Controllers
                 .Include(s => s.Class)
                 .Select(s => new {
                     Id = s.Id,
-                    StudentCode = s.StudentCode, // Bơm thêm dòng này để Web hiển thị không bị lỗi
-                    StudentId = s.StudentCode,   // Giữ lại dòng này phòng hờ React cần
+                    StudentCode = s.StudentCode,
+                    StudentId = s.StudentCode,
                     FullName = s.FullName,
                     Email = s.Email,
                     ClassName = s.Class != null ? s.Class.ClassName : "Chưa xếp lớp"
@@ -119,14 +117,11 @@ namespace ConnectDB.Controllers
             return Ok(students);
         }
 
-        // 2. Hàm thêm mới (POST) - ĐÃ FIX LỖI NHẬN MÃ SV
         [HttpPost("students")]
         public async Task<IActionResult> AddStudent([FromBody] SyncStudent_Req dto)
         {
-            // Lấy mã SV ra một cách an toàn
             var maSV = dto.GetCode();
 
-            // Chặn ngay từ cửa nếu React gửi thiếu mã
             if (string.IsNullOrWhiteSpace(maSV))
                 return BadRequest(new { message = "Lỗi Backend: Không nhận được Mã SV từ Web gửi lên!" });
 
@@ -139,7 +134,7 @@ namespace ConnectDB.Controllers
                 var newUser = new User
                 {
                     Username = maSV,
-                    Password = BCrypt.Net.BCrypt.HashPassword("123"), // Mật khẩu mặc định 123 đã được băm
+                    Password = "123", // ĐÃ TẮT MÃ HÓA
                     Role = "Student"
                 };
                 _context.Users.Add(newUser);
@@ -201,7 +196,6 @@ namespace ConnectDB.Controllers
             if (string.IsNullOrWhiteSpace(maSV))
                 return BadRequest(new { message = "Lỗi Backend: Mã SV trống!" });
 
-            // Kiểm tra trùng lặp nếu có thay đổi Mã SV
             if (st.StudentCode != maSV)
             {
                 bool exists = await _context.Users.AnyAsync(u => u.Username == maSV);
@@ -240,6 +234,7 @@ namespace ConnectDB.Controllers
                 return StatusCode(500, "Lỗi server: " + ex.Message);
             }
         }
+
         // ================= 4. GIẢNG VIÊN (TEACHER) =================
         [HttpGet("teachers")]
         public async Task<IActionResult> GetTeachers() => Ok(await _context.Teachers.ToListAsync());
@@ -256,7 +251,7 @@ namespace ConnectDB.Controllers
                 var newUser = new User
                 {
                     Username = dto.Username,
-                    Password = BCrypt.Net.BCrypt.HashPassword(dto.Password),
+                    Password = dto.Password ?? "123", // ĐÃ TẮT MÃ HÓA
                     Role = "Teacher",
                     FullName = dto.FullName
                 };
@@ -431,31 +426,28 @@ namespace ConnectDB.Controllers
             return Ok(users);
         }
 
-        // HÀM CŨ CỦA M GIỮ NGUYÊN
         [HttpPut("users/reset-password/{id}")]
         public async Task<IActionResult> ResetPassword(int id)
         {
             var user = await _context.Users.FindAsync(id);
             if (user == null) return NotFound();
-            user.Password = BCrypt.Net.BCrypt.HashPassword("123");
+            user.Password = "123"; // ĐÃ TẮT MÃ HÓA
             await _context.SaveChangesAsync();
             return Ok(new { message = "Mật khẩu đã reset về 123" });
         }
 
-        // HÀM CŨ CỦA M GIỮ NGUYÊN
         [HttpPost("create-user-manual")]
         public async Task<IActionResult> CreateUserManual([FromBody] User u)
         {
             if (await _context.Users.AnyAsync(x => x.Username == u.Username))
                 return BadRequest(new { message = "Username đã tồn tại!" });
 
-            u.Password = BCrypt.Net.BCrypt.HashPassword(u.Password);
+            u.Password = u.Password ?? "123"; // ĐÃ TẮT MÃ HÓA
             _context.Users.Add(u);
             await _context.SaveChangesAsync();
             return Ok(new { message = "Tạo tài khoản thành công!" });
         }
 
-        // HÀM CŨ CỦA M GIỮ NGUYÊN (React sửa Role sẽ gọi vào hàm này)
         [HttpPut("users/{id}")]
         public async Task<IActionResult> UpdateUser(int id, [FromBody] User u)
         {
@@ -464,24 +456,22 @@ namespace ConnectDB.Controllers
             userDb.Username = u.Username;
             userDb.Role = u.Role;
             if (!string.IsNullOrEmpty(u.Password))
-                userDb.Password = BCrypt.Net.BCrypt.HashPassword(u.Password);
+                userDb.Password = u.Password; // ĐÃ TẮT MÃ HÓA
             await _context.SaveChangesAsync();
             return Ok(new { message = "Cập nhật thành công" });
         }
 
-        // HÀM THÊM CHO REACT: Đổi pass mới
         [HttpPut("users/{id}/password")]
         public async Task<IActionResult> ChangePassword(int id, [FromBody] ReactChangePassReq dto)
         {
             var user = await _context.Users.FindAsync(id);
             if (user == null) return NotFound(new { message = "Không tìm thấy tài khoản!" });
 
-            user.Password = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+            user.Password = dto.NewPassword; // ĐÃ TẮT MÃ HÓA
             await _context.SaveChangesAsync();
             return Ok(new { message = "Đổi mật khẩu thành công!" });
         }
 
-        // HÀM THÊM CHO REACT: Xóa user
         [HttpDelete("users/{id}")]
         public async Task<IActionResult> DeleteUser(int id)
         {
@@ -517,11 +507,11 @@ namespace ConnectDB.Controllers
         public int Credits { get; set; }
         public int FacultyId { get; set; }
     }
-    // DÁN THÊM CÁI KHUÔN NÀY XUỐNG CUỐI FILE ADMINCONTROLLER.CS
+
     public class SyncStudent_Req
     {
         public string? StudentCode { get; set; }
-        public string? StudentId { get; set; } // Hứng lỡ React gửi tên này
+        public string? StudentId { get; set; }
         public string? FullName { get; set; }
         public DateTime Birthday { get; set; }
         public string? Gender { get; set; }
@@ -530,9 +520,9 @@ namespace ConnectDB.Controllers
         public string? Address { get; set; }
         public int ClassId { get; set; }
 
-        // Hàm helper này cực hay: Dù React gửi StudentCode hay StudentId thì nó đều bắt được
         public string GetCode() => !string.IsNullOrWhiteSpace(StudentCode) ? StudentCode : (StudentId ?? string.Empty);
     }
+
     public class ReactChangePassReq
     {
         public string NewPassword { get; set; }
