@@ -342,7 +342,9 @@ namespace ConnectDB.Controllers
         }
 
         // ================= 7. ĐIỂM SỐ (SCORE) =================
-        // 1. LẤY TẤT CẢ ĐIỂM
+        // ================= 7. ĐIỂM SỐ (SCORE) =================
+
+        // 1. Lấy tất cả điểm (Đảm bảo trả về ID để React có dữ liệu gán ngược lại)
         [HttpGet("scores")]
         public async Task<IActionResult> GetAllScores()
         {
@@ -352,8 +354,7 @@ namespace ConnectDB.Controllers
                 .Select(s => new
                 {
                     s.Id,
-                    // Trả về tên biến viết thường chữ cái đầu để khớp với JS/React
-                    studentId = s.StudentId,
+                    studentId = s.StudentId, // Viết thường chữ đầu để khớp React
                     subjectId = s.SubjectId,
                     studentName = s.Student != null ? s.Student.FullName : "---",
                     subjectName = s.Subject != null ? s.Subject.SubjectName : "---",
@@ -369,61 +370,61 @@ namespace ConnectDB.Controllers
             return Ok(result);
         }
 
-        // 2. CẬP NHẬT HOẶC THÊM MỚI ĐIỂM
+        // 2. Lưu hoặc Cập nhật điểm (Đã bọc bẫy lỗi 500)
         [HttpPost("scores")]
         public async Task<IActionResult> UpdateScore([FromBody] ScoreDto dto)
         {
-            if (dto == null) return BadRequest(new { message = "Dữ liệu gửi lên bị trống!" });
-            if (dto.StudentId <= 0 || dto.SubjectId <= 0) return BadRequest(new { message = "ID Sinh viên hoặc Môn học không hợp lệ!" });
+            if (dto == null) return BadRequest(new { message = "Dữ liệu trống!" });
+
+            // Chặn ID ảo
+            if (dto.StudentId <= 0 || dto.SubjectId <= 0)
+                return BadRequest(new { message = "ID Sinh viên hoặc Môn học không tồn tại!" });
 
             try
             {
-                // Tìm bản ghi điểm đã tồn tại
+                // Kiểm tra xem đã có dòng điểm này chưa
                 var score = await _context.Scores
                     .FirstOrDefaultAsync(s => s.StudentId == dto.StudentId && s.SubjectId == dto.SubjectId);
 
-                bool isNew = false;
                 if (score == null)
                 {
-                    isNew = true;
+                    // Nếu chưa có thì tạo mới
                     score = new Score
                     {
                         StudentId = dto.StudentId,
                         SubjectId = dto.SubjectId
                     };
+                    _context.Scores.Add(score);
                 }
 
-                // Gán dữ liệu điểm
+                // Gán giá trị điểm từ DTO
                 score.KT1 = dto.KT1;
                 score.KT2 = dto.KT2;
                 score.DiemThi = dto.DiemThi;
 
-                // Tính toán: (KT1 + KT2 + Thi*2) / 4
+                // Tính toán trung bình (KT1 + KT2 + Thi*2) / 4
                 score.DiemTrungBinh = (float)Math.Round((score.KT1 + score.KT2 + score.DiemThi * 2) / 4, 1);
                 score.KetQua = score.DiemTrungBinh >= 5 ? "Qua môn" : "Học lại";
 
-                if (isNew)
-                {
-                    _context.Scores.Add(score);
-                }
-                else
-                {
-                    _context.Scores.Update(score);
-                }
-
+                // Lưu xuống Database
                 await _context.SaveChangesAsync();
 
                 return Ok(new
                 {
-                    message = "Đã lưu điểm và tính toán xong!",
+                    message = "Lưu điểm thành công!",
                     dtb = score.DiemTrungBinh,
                     ketQua = score.KetQua
                 });
             }
             catch (Exception ex)
             {
-                // Trả về lỗi chi tiết nếu Database bị từ chối lưu
-                return StatusCode(500, new { message = "Lỗi Database: " + ex.Message });
+                // Nếu bị lỗi 500, dòng này sẽ phun ra lỗi THẬT của Database ở tab Response
+                var errorDetail = ex.InnerException?.Message ?? ex.Message;
+                return StatusCode(500, new
+                {
+                    message = "Lỗi Database rồi m ơi!",
+                    detail = errorDetail
+                });
             }
         }
         // ================= 8. HỆ THỐNG TÀI KHOẢN (USERS) =================
@@ -552,6 +553,7 @@ namespace ConnectDB.Controllers
         public float KT2 { get; set; }
         public float DiemThi { get; set; }
     }
+
     public class StudentUpdateDto
     {
         public string FullName { get; set; } = string.Empty;
