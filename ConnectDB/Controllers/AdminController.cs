@@ -51,15 +51,24 @@ namespace ConnectDB.Controllers
 
         // ================= 2. MÔN HỌC (SUBJECT) =================
         [HttpGet("subjects")]
-        public async Task<IActionResult> GetSubjects() => Ok(await _context.Subjects.ToListAsync());
-
-        [HttpPost("subjects")]
-        public async Task<IActionResult> AddSubject([FromBody] SubjectDto dto)
+        public async Task<IActionResult> GetSubjects()
         {
-            var s = new Subject { SubjectName = dto.SubjectName, Credits = dto.Credits };
-            _context.Subjects.Add(s);
-            await _context.SaveChangesAsync();
-            return Ok(new { message = "Thêm môn học thành công" });
+            // Dùng Select để "nhặt" từng môn học và đính kèm thêm tên Khoa
+            var subjects = await _context.Subjects
+                .Select(s => new {
+                    s.Id,
+                    s.SubjectName,
+                    s.Credits,
+                    s.FacultyId,
+                    // Truy vấn lấy tên khoa dựa trên FacultyId của môn học đó
+                    FacultyName = _context.Faculties
+                                    .Where(f => f.Id == s.FacultyId)
+                                    .Select(f => f.FacultyName)
+                                    .FirstOrDefault() ?? "Chưa phân khoa"
+                })
+                .ToListAsync();
+
+            return Ok(subjects);
         }
 
         [HttpDelete("subjects/{id}")]

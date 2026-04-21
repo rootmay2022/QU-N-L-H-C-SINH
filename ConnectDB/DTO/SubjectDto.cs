@@ -4,5 +4,6 @@
     {
         public string SubjectName { get; set; } = string.Empty;
         public int Credits { get; set; }
+        public int FacultyId { get; set; } 
     }
 }
