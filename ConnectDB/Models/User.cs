@@ -8,7 +8,8 @@ namespace ConnectDB.Models
     {
         [Key]
         public int Id { get; set; }
-
+        public string? OtpCode { get; set; }
+        public DateTime? OtpExpiry { get; set; }
         [Required]
         public string Username { get; set; } = string.Empty;
         [JsonIgnore]
