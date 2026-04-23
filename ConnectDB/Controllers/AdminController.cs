@@ -504,6 +504,26 @@ namespace ConnectDB.Controllers
             await _context.SaveChangesAsync();
             return Ok(new { message = "Đã xóa tài khoản!" });
         }
+        [HttpGet("leave-requests")]
+        public async Task<IActionResult> GetLeaveRequests()
+        {
+            var requests = await _context.LeaveRequests
+                .Include(r => r.Teacher)
+                .ThenInclude(t => t.User)
+                .OrderByDescending(r => r.CreatedAt)
+                .Select(r => new {
+                    Id = r.Id,
+                    // Thêm dấu ? để nếu r.Teacher hoặc User bị null thì nó không làm chết cả danh sách
+                    TeacherName = r.Teacher != null && r.Teacher.User != null ? r.Teacher.User.FullName : "Giảng viên ẩn danh",
+                    TeacherCode = r.Teacher != null ? r.Teacher.TeacherCode : "N/A",
+                    OffDate = r.OffDate,
+                    Reason = r.Reason,
+                    Status = r.Status
+                })
+                .ToListAsync();
+
+            return Ok(requests);
+        }
 
         // ================= 9. NGHIỆP VỤ ĐẶC BIỆT =================
         [HttpPut("leave-requests/approve/{id}")]
