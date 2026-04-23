@@ -26,15 +26,31 @@ public class NotificationController : ControllerBase
             return Unauthorized("Không xác định được người gửi!");
         }
 
+        int? finalTargetId = dto.TargetId;
+
+        // 🚀 BẮT ĐẦU ĐOẠN FIX LỖI "LỆCH PHA ID" Ở ĐÂY
+        // Nếu gửi cho một Giảng viên cụ thể, phải dịch TeacherId -> UserId
+        if (dto.TargetType == "Teacher" && dto.TargetId != null && dto.TargetId > 0)
+        {
+            var teacher = await _context.Teachers.FirstOrDefaultAsync(t => t.Id == dto.TargetId);
+            if (teacher != null)
+            {
+                finalTargetId = teacher.UserId; // Chuyển đổi sang UserId để GV có thể đọc được
+            }
+        }
+        // 🚀 KẾT THÚC ĐOẠN FIX
+
         var notification = new Notification
         {
             SenderId = int.Parse(userIdClaim),
             SenderRole = roleClaim,
             TargetType = dto.TargetType,
-            TargetId = dto.TargetId,
+            TargetId = finalTargetId, // Sử dụng ID đã được "dịch"
             ClassId = dto.ClassId,
             Title = dto.Title ?? "Không có tiêu đề",
             Content = dto.Content ?? "",
+            Type = dto.Type ?? "Note",
+            IsRead = false,
             CreatedAt = DateTime.Now
         };
 
