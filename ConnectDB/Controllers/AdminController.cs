@@ -493,7 +493,30 @@ namespace ConnectDB.Controllers
             await _context.SaveChangesAsync();
             return Ok(new { message = "Đổi mật khẩu thành công!" });
         }
+        [HttpPut("leave-requests/approve/{id}")]
+        public async Task<IActionResult> ApproveLeaveRequest(int id)
+        {
+            // 1. Tìm cái đơn dựa trên ID truyền vào từ URL
+            var request = await _context.LeaveRequests.FindAsync(id);
 
+            if (request == null)
+            {
+                return NotFound(new { message = "Đéo tìm thấy cái đơn nào có ID này m ơi!" });
+            }
+
+            // 2. Cập nhật trạng thái thành 'Approved'
+            request.Status = "Approved";
+
+            try
+            {
+                await _context.SaveChangesAsync();
+                return Ok(new { message = "Đã duyệt đơn thành công! Giáo viên sẽ thấy trạng thái mới." });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = "Lỗi khi lưu vào DB: " + ex.Message });
+            }
+        }
         [HttpDelete("users/{id}")]
         public async Task<IActionResult> DeleteUser(int id)
         {
