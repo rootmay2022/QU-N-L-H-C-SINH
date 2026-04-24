@@ -490,40 +490,39 @@ namespace ConnectDB.Controllers
         [HttpPut("leave-requests/approve/{id}")]
         public async Task<IActionResult> ApproveLeaveRequest(int id)
         {
-            // Dùng Transaction: Đảm bảo vừa duyệt đơn VÀ vừa hủy lịch thành công thì mới lưu
+            // Sử dụng Transaction để đảm bảo: Duyệt đơn được thì Lịch cũng phải đổi được
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                // 1. Tìm cái đơn xin nghỉ
+                // 1. Tìm cái đơn xin nghỉ phép
                 var request = await _context.LeaveRequests.FindAsync(id);
                 if (request == null) return NotFound(new { message = "Không tìm thấy đơn ID: " + id });
 
-                // 2. Đổi trạng thái đơn thành "Approved"
+                // 2. Cập nhật trạng thái đơn thành 'Approved'
                 request.Status = "Approved";
 
-                // 3. TỰ ĐỘNG CẬP NHẬT LỊCH HỌC SANG "TẠM DỪNG"
-                // Tìm tất cả các ca dạy của ông thầy này vào ĐÚNG CÁI NGÀY ổng xin nghỉ
+                // 3. LOGIC QUAN TRỌNG: Tự động cập nhật Lịch dạy/Học
+                // Tìm tất cả các ca học của ông thầy này trong đúng cái ngày ông ấy xin nghỉ (OffDate)
                 var affectedSchedules = await _context.Schedules
                     .Where(s => s.TeacherId == request.TeacherId && s.LearnDate.Date == request.OffDate.Date)
                     .ToListAsync();
 
-                // Ghi đè vào cột Ghi Chú (Note) để Sinh viên và GV đều thấy
+                // Ghi đè chữ "TẠM DỪNG" vào cột Ghi chú (Note)
                 foreach (var schedule in affectedSchedules)
                 {
                     schedule.Note = "TẠM DỪNG - GV NGHỈ PHÉP";
                 }
 
-                // 4. Lưu tất cả thay đổi vào Database
+                // 4. Lưu tất cả thay đổi
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                // Đếm xem đã hủy bao nhiêu ca học để báo cho Admin biết
-                return Ok(new { message = $"Đã duyệt! Và tự động cho Tạm Dừng {affectedSchedules.Count} ca học của ngày hôm đó." });
+                return Ok(new { message = $"Đã duyệt đơn! Hệ thống đã tự động tạm dừng {affectedSchedules.Count} ca học của ngày hôm đó." });
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                return StatusCode(500, new { message = "Lỗi xử lý duyệt: " + ex.Message });
+                return StatusCode(500, new { message = "Lỗi xử lý hệ thống: " + ex.Message });
             }
         }
         [HttpPut("leave-requests/reject/{id}")]
