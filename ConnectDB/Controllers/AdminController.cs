@@ -467,7 +467,8 @@ namespace ConnectDB.Controllers
             {
                 var requests = await _context.LeaveRequests
                     .Include(r => r.Teacher).ThenInclude(t => t.User)
-                    .OrderByDescending(r => r.CreatedAt)
+                    // SỬA DÒNG NÀY: Thay r.CreatedAt thành r.Id
+                    .OrderByDescending(r => r.Id)
                     .Select(r => new
                     {
                         Id = r.Id,
